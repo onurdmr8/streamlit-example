@@ -1,38 +1,121 @@
-from collections import namedtuple
-import altair as alt
-import math
-import pandas as pd
 import streamlit as st
+import pandas as pd
+from sqlalchemy import create_engine
+import urllib.parse
+from sqlalchemy import text
+import subprocess
 
-"""
-# Welcome to Streamlit!
+genelbg = '#ECE5C7'
 
-Edit `/streamlit_app.py` to customize this app to your heart's desire :heart:
+st.set_page_config(layout="wide")
+st.title('666')
+st.markdown('<style>body{background-color: %s;}</style>' % genelbg, unsafe_allow_html=True)
 
-If you have any questions, checkout our [documentation](https://docs.streamlit.io) and [community
-forums](https://discuss.streamlit.io).
+@st.cache_data
+def get_data():
+    ServerName = "VSTRAPP"
+    MSQLDatabase = "VSA2023"
+    username = "DescomKasa"
+    password = "D123456d*"
+    connection_string = "DRIVER={SQL Server};SERVER=" + ServerName + ";DATABASE=" + MSQLDatabase + ";UID=" + username + ";PWD=" + password + ";charset=utf-8"
+    params = urllib.parse.quote_plus(connection_string)
+    engine = create_engine("mssql+pyodbc:///?odbc_connect={}".format(params))
+    query = "SELECT ISEMRINO, TARIH, STOK_KODU, MIKTAR, TESLIM_TARIHI, SIPARIS_NO, KAPALI FROM TBLISEMRI"
+    df = pd.read_sql(query, engine)
+    stok_query = "SELECT STOK_KODU, STOK_ADI FROM TBLSTSABIT"
+    stok_df = pd.read_sql(stok_query, engine)
+    # Merge the two dataframes on 'STOK_KODU'
+    df = df.merge(stok_df, on='STOK_KODU', how='left')
+    df2 = df[['ISEMRINO', 'TARIH', 'STOK_KODU', 'STOK_ADI', 'MIKTAR', 'TESLIM_TARIHI', 'SIPARIS_NO', 'KAPALI']]
+    return df2
 
-In the meantime, below is an example of what you can do with just a few lines of code:
-"""
+data = get_data()
 
+def colorize_rows(row):
+    if row['KAPALI'] == "E":
+        return ['background-color: #000000'] * 8
+    else:
+        return ['background-color: #210062'] * 8
+def filter_data(df, tarih, surec):
+    filtered_df = df.copy()
+    tarih = tarih.strftime("%d-%m-%Y")
+    filtered_df = filtered_df[filtered_df['TARIH'] == tarih]
+    if surec != "hepsi":
+        if surec == "seçme":
+            surex = "03"
+        elif surec == "fırın":
+            surex = "05"
+        elif surec == "IQF":
+            surex = "06"
+        elif surec == "kalite":
+            surex = "01"
+        elif surec == "paketleme":
+            surex = "07"
+        elif surec == "kantar":
+            surex = "01"
+        elif surec == "meyve kesme":
+            surex = "04"
+        elif surec == "reçel":
+            surex = "08"
+        elif surec == "püre":
+            surex = "09"
+        elif surec == "yarı mamul":
+            surex = "10"
+        filtered_df = filtered_df[filtered_df['ISEMRINO'].str.startswith(surex)]
+    else:
+        filtered_df = df.copy()
+    if vardiya != "hepsi":
+        if vardiya=="00:00-08:00":
+            vardiyax="1"
+        elif vardiya=="08:00-16:00":
+            vardiyax="2"
+        elif vardiya=="16:00-24:00":
+            vardiyax="3"
+        filtered_df = filtered_df[filtered_df['ISEMRINO'].str[2] == vardiyax]
+    return filtered_df
 
-with st.echo(code_location='below'):
-    total_points = st.slider("Number of points in spiral", 1, 5000, 2000)
-    num_turns = st.slider("Number of turns in spiral", 1, 100, 9)
+container = st.container()
+container2=st.container()
+container2.markdown('<style>div[data-baseweb="select"] { width: 300px !important; }</style>', unsafe_allow_html=True)
+columns = st.columns(2)
+with columns[0]:
+    tarih = st.date_input('Tarih seçin:')
+    surec = st.selectbox('İş Emri Süreci seçin:',
+                         ['hepsi', 'seçme', 'fırın', 'IQF', 'kalite', "paketleme", "kantar", "meyve kesme", "reçel",
+                          "püre", "yarı mamul"])
+    vardiya = st.selectbox('Vardiya seçin:', ['hepsi', '00:00-08:00', '08:00-16:00', '16:00-24:00'])
+    filtered_data = filter_data(data, tarih, surec)
+    container.markdown('<style>div[data-baseweb="select"] { width: 300px !important; }</style>',
+                       unsafe_allow_html=True)
+    container.markdown('<style>div[data-baseweb="input"] { width: 300px !important; }</style>',
+                       unsafe_allow_html=True)
+with columns[1]:
 
-    Point = namedtuple('Point', 'x y')
-    data = []
+    yeni_deger = st.selectbox('kapali mi?', ['E', 'H'])
+    emir_no = st.text_input('İş Emri No:')
+    st.write("")
+    st.write("")
+    update = st.button('Güncelle')
+st.dataframe(filtered_data.style.apply(colorize_rows, axis=1), use_container_width=True)
 
-    points_per_turn = total_points / num_turns
+def update_kapali_value(emir_no, yeni_deger):
+    ServerName = "VSTRAPP"
+    MSQLDatabase = "VSA2023"
+    username = "DescomKasa"
+    password = "D123456d*"
+    connection_string = "DRIVER={SQL Server};SERVER=" + ServerName + ";DATABASE=" + MSQLDatabase + ";UID=" + username + ";PWD=" + password + ";charset=utf-8"
+    params = urllib.parse.quote_plus(connection_string)
+    engine = create_engine("mssql+pyodbc:///?odbc_connect={}".format(params))
+    # Güncelleme sorgusu
+    query = f"UPDATE TBLISEMRI SET KAPALI = '{yeni_deger}' WHERE ISEMRINO = '{emir_no}'"
+    # Sorguyu çalıştır
+    with engine.begin() as connection:
+        connection.execute(text(query))
+    st.success('İş Emri güncellendi')
+    #restart everything
+    st.cache_data.clear()
+    st.experimental_rerun()
 
-    for curr_point_num in range(total_points):
-        curr_turn, i = divmod(curr_point_num, points_per_turn)
-        angle = (curr_turn + 1) * 2 * math.pi * i / points_per_turn
-        radius = curr_point_num / total_points
-        x = radius * math.cos(angle)
-        y = radius * math.sin(angle)
-        data.append(Point(x, y))
+if update:
+    update_kapali_value(emir_no, yeni_deger)
 
-    st.altair_chart(alt.Chart(pd.DataFrame(data), height=500, width=500)
-        .mark_circle(color='#0068c9', opacity=0.5)
-        .encode(x='x:Q', y='y:Q'))
